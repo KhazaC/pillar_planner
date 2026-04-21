@@ -44,7 +44,7 @@ function AppShell() {
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={import.meta.env.BASE_URL}>
       <Routes>
         <Route path="/" element={<AppShell />} />
         <Route path="/settings" element={<SettingsView />} />
