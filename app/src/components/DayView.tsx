@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { format } from 'date-fns';
 import { useStore } from '../store/useStore';
 import type { ResolvedBlock } from '../types';
-import { AnchorPhase, COLOR_MAP, effortScore } from '../types';
+import { AnchorPhase, COLOR_MAP, DIFFICULTY_LABELS, TaskDifficulty, effortScore } from '../types';
 import { AdHocDaySection } from './AdHocDaySection';
 
 export function DayView() {
@@ -10,15 +10,24 @@ export function DayView() {
     routineTemplates,
     selectedRoutine,
     resolvedBlocks,
+    taskDefinitions,
     isLoading,
     errorMessage,
     selectRoutine,
     loadDay,
     toggleAction,
+    completeActionWithDetails,
     updateNote,
   } = useStore();
 
   const contentRef = useRef<HTMLDivElement>(null);
+  const [pendingCompletion, setPendingCompletion] = useState<{
+    blockIndex: number;
+    actionIndex: number;
+    title: string;
+    durationMinutes: number | '';
+    difficulty: TaskDifficulty;
+  } | null>(null);
 
   useEffect(() => {
     if (selectedRoutine) {
@@ -39,6 +48,33 @@ export function DayView() {
       }
     }
   }, [resolvedBlocks]);
+
+  const handleToggleAction = (blockIndex: number, actionIndex: number) => {
+    const action = resolvedBlocks[blockIndex]?.actions[actionIndex];
+    if (!action) return;
+
+    if (action.isCompleted) {
+      toggleAction(blockIndex, actionIndex);
+      return;
+    }
+
+    const taskDef = action.taskID
+      ? taskDefinitions.find((td) => td.id === action.taskID)
+      : null;
+
+    if (taskDef?.requiresCompletionDetails) {
+      setPendingCompletion({
+        blockIndex,
+        actionIndex,
+        title: action.title,
+        durationMinutes: action.durationMinutes ?? '',
+        difficulty: action.difficulty,
+      });
+      return;
+    }
+
+    toggleAction(blockIndex, actionIndex);
+  };
 
   return (
     <>
@@ -84,14 +120,113 @@ export function DayView() {
                 key={block.id}
                 block={block}
                 index={i}
-                onToggleAction={(ai) => toggleAction(i, ai)}
+                onToggleAction={(ai) => handleToggleAction(i, ai)}
                 onUpdateNote={(note) => updateNote(i, note)}
               />
             ))}
           </>
         )}
       </div>
+
+      {pendingCompletion && (
+        <CompletionDetailsModal
+          title={pendingCompletion.title}
+          durationMinutes={pendingCompletion.durationMinutes}
+          difficulty={pendingCompletion.difficulty}
+          onChangeDuration={(value) =>
+            setPendingCompletion((prev) =>
+              prev ? { ...prev, durationMinutes: value } : prev
+            )
+          }
+          onChangeDifficulty={(value) =>
+            setPendingCompletion((prev) =>
+              prev ? { ...prev, difficulty: value } : prev
+            )
+          }
+          onClose={() => setPendingCompletion(null)}
+          onConfirm={() => {
+            if (!pendingCompletion) return;
+            completeActionWithDetails(pendingCompletion.blockIndex, pendingCompletion.actionIndex, {
+              durationMinutes:
+                pendingCompletion.durationMinutes === ''
+                  ? null
+                  : pendingCompletion.durationMinutes,
+              difficulty: pendingCompletion.difficulty,
+            });
+            setPendingCompletion(null);
+          }}
+        />
+      )}
     </>
+  );
+}
+
+function CompletionDetailsModal({
+  title,
+  durationMinutes,
+  difficulty,
+  onChangeDuration,
+  onChangeDifficulty,
+  onClose,
+  onConfirm,
+}: {
+  title: string;
+  durationMinutes: number | '';
+  difficulty: TaskDifficulty;
+  onChangeDuration: (value: number | '') => void;
+  onChangeDifficulty: (value: TaskDifficulty) => void;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-sheet" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>Complete Task</h2>
+          <button className="modal-close" onClick={onClose}>
+            Cancel
+          </button>
+        </div>
+
+        <div className="form-group">
+          <label>Task</label>
+          <input value={title} disabled />
+        </div>
+
+        <div className="form-group">
+          <label>Duration (minutes)</label>
+          <input
+            type="number"
+            min={1}
+            value={durationMinutes}
+            onChange={(e) => onChangeDuration(e.target.value ? Number(e.target.value) : '')}
+          />
+        </div>
+
+        <div className="form-group">
+          <label>Rating (difficulty/quality)</label>
+          <select
+            value={difficulty}
+            onChange={(e) => onChangeDifficulty(Number(e.target.value) as TaskDifficulty)}
+          >
+            {Object.entries(DIFFICULTY_LABELS).map(([k, v]) => (
+              <option key={k} value={k}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="btn-row">
+          <button className="btn btn-secondary" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn btn-primary" onClick={onConfirm}>
+            Complete
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

@@ -16,6 +16,7 @@ import {
   AdHocStatus,
   AdHocRecurrence,
   ProjectLifecycleStatus,
+  TaskDifficulty,
   DEFAULT_IQAMAH_SCHEDULE,
   effortScore,
   createTaskDefinition,
@@ -65,6 +66,11 @@ interface AppState {
   loadDay: () => Promise<void>;
   selectRoutine: (routine: RoutineTemplate) => void;
   toggleAction: (blockIndex: number, actionIndex: number) => void;
+  completeActionWithDetails: (
+    blockIndex: number,
+    actionIndex: number,
+    details: { durationMinutes: number | null; difficulty: TaskDifficulty }
+  ) => void;
   updateNote: (blockIndex: number, note: string) => void;
 
   // Block CRUD
@@ -209,6 +215,15 @@ export const useStore = create<AppState>((set, get) => ({
       }
     }
 
+    // Backfill newly added task definition fields for older saved data.
+    if (taskDefs.some((td) => td.requiresCompletionDetails === undefined)) {
+      taskDefs = taskDefs.map((td) => ({
+        ...td,
+        requiresCompletionDetails: td.requiresCompletionDetails ?? false,
+      }));
+      persistence.saveTaskDefinitions(taskDefs);
+    }
+
     const month = new Date().getMonth() + 1;
     const defaultIncludeNap = month >= 4 && month <= 8;
     const includeNap = persistence.loadIncludeNap(defaultIncludeNap);
@@ -311,6 +326,26 @@ export const useStore = create<AppState>((set, get) => ({
     set({ resolvedBlocks: blocks });
 
     // Persist
+    const dateKey = format(startOfDay(get().date), 'yyyy-MM-dd');
+    const dayLogs = persistence.loadDayLogs();
+    saveDayLog(get(), blocks, dateKey, dayLogs);
+  },
+
+  completeActionWithDetails: (blockIndex, actionIndex, details) => {
+    const blocks = [...get().resolvedBlocks];
+    const block = { ...blocks[blockIndex] };
+    const actions = [...block.actions];
+    const current = actions[actionIndex];
+    actions[actionIndex] = {
+      ...current,
+      isCompleted: true,
+      durationMinutes: details.durationMinutes,
+      difficulty: details.difficulty,
+    };
+    block.actions = actions;
+    blocks[blockIndex] = block;
+    set({ resolvedBlocks: blocks });
+
     const dateKey = format(startOfDay(get().date), 'yyyy-MM-dd');
     const dayLogs = persistence.loadDayLogs();
     saveDayLog(get(), blocks, dateKey, dayLogs);
@@ -664,8 +699,8 @@ function saveDayLog(
         difficulty: a.difficulty,
         effortScore: es,
         projectIDs: a.defaultProjectIDs,
-        actualDifficulty: 0,
-        actualDurationMinutes: 0,
+        actualDifficulty: a.difficulty,
+        actualDurationMinutes: a.durationMinutes ?? 0,
         taskDefinitionID: a.taskID,
       };
     });

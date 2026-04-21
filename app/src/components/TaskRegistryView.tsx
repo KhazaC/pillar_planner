@@ -52,6 +52,7 @@ export function TaskRegistryView() {
               {task.defaultDurationMinutes
                 ? ` · ${task.defaultDurationMinutes}m`
                 : ''}
+              {task.requiresCompletionDetails ? ' · detailed completion' : ''}
               {task.defaultProjectIDs.length > 0 ? ' · 📁' : ''}
             </p>
           </div>
@@ -106,6 +107,9 @@ function TaskFormModal({
   const [difficulty, setDifficulty] = useState<TaskDifficulty>(task?.defaultDifficulty || TaskDifficulty.Low);
   const [duration, setDuration] = useState<number | ''>(task?.defaultDurationMinutes ?? '');
   const [linkedProjectId, setLinkedProjectId] = useState<string | null>(task?.defaultProjectIDs[0] || null);
+  const [requiresCompletionDetails, setRequiresCompletionDetails] = useState(
+    task?.requiresCompletionDetails ?? false
+  );
 
   const handleSave = () => {
     if (!title.trim()) return;
@@ -116,6 +120,7 @@ function TaskFormModal({
         defaultDifficulty: difficulty,
         defaultDurationMinutes: duration || null,
         defaultProjectIDs: linkedProjectId ? [linkedProjectId] : [],
+        requiresCompletionDetails,
       });
     } else {
       addTaskDefinition(
@@ -124,6 +129,7 @@ function TaskFormModal({
           defaultDifficulty: difficulty,
           defaultDurationMinutes: duration || null,
           defaultProjectIDs: linkedProjectId ? [linkedProjectId] : [],
+          requiresCompletionDetails,
         })
       );
     }
@@ -183,6 +189,17 @@ function TaskFormModal({
               </option>
             ))}
           </select>
+        </div>
+
+        <div className="form-group">
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input
+              type="checkbox"
+              checked={requiresCompletionDetails}
+              onChange={(e) => setRequiresCompletionDetails(e.target.checked)}
+            />
+            Prompt for duration and rating on completion
+          </label>
         </div>
 
         <div className="btn-row">

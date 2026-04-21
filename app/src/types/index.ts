@@ -353,6 +353,7 @@ export interface TaskDefinition {
   defaultDurationMinutes: number | null;
   defaultDifficulty: TaskDifficulty;
   defaultProjectIDs: string[];
+  requiresCompletionDetails: boolean;
 }
 
 export function createTaskDefinition(
@@ -363,6 +364,7 @@ export function createTaskDefinition(
     defaultDurationMinutes: null,
     defaultDifficulty: TaskDifficulty.Low,
     defaultProjectIDs: [],
+    requiresCompletionDetails: false,
     ...partial,
   };
 }
