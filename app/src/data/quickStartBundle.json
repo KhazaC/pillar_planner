@@ -457,7 +457,14 @@
         "dc444545-d811-4063-9b6b-0b06a21d4533",
         "a808bef1-0e67-47bd-afcf-04f70326df58"
       ],
-      "suggestedWeekdays": [1, 2, 3, 4, 5, 7],
+      "suggestedWeekdays": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        7
+      ],
       "name": "Normal"
     }
   ],
@@ -469,6 +476,7 @@
       "cadence": "Daily",
       "isActive": true,
       "tracksCompletion": false,
+      "exertEligible": false,
       "status": "Active",
       "completionNote": null,
       "completionDate": null,
@@ -669,5 +677,6 @@
       "requiresCompletionDetails": false
     }
   ],
-  "adHocTasks": []
+  "adHocTasks": [
+  ]
 }

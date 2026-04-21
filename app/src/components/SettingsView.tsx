@@ -27,8 +27,6 @@ export function SettingsView() {
     setCity,
     notificationMode,
     setNotificationMode,
-    includeNap,
-    setIncludeNap,
     blockTemplates,
     routineTemplates,
     deleteBlock,
@@ -116,18 +114,6 @@ export function SettingsView() {
               </option>
             ))}
           </select>
-        </div>
-      </div>
-
-      {/* Nap */}
-      <div className="settings-section">
-        <h3>Qaylulah (Nap)</h3>
-        <div className="settings-row">
-          <label>Include nap block</label>
-          <div
-            className={`toggle ${includeNap ? 'on' : ''}`}
-            onClick={() => setIncludeNap(!includeNap)}
-          />
         </div>
       </div>
 
