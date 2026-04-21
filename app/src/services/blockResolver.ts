@@ -108,7 +108,26 @@ export function resolveBlocks(
       case 'fixedTime': {
         let start: Date;
         if (block.anchor.hour === 0 && block.anchor.minute === 0) {
-          start = previousEnd ?? date;
+          if (previousEnd) {
+            start = previousEnd;
+          } else {
+            const nextStart = anchoredTimes
+              .filter((at) => at.index > i)
+              .map((at) => {
+                const nextBlock = blocks[at.index];
+                if (nextBlock.anchor.type === 'iqamahTime') {
+                  return new Date(at.time.getTime() - blockPreAnchorMinutes(nextBlock) * 60_000);
+                }
+                return at.time;
+              })
+              .find((candidate) => candidate instanceof Date);
+
+            if (nextStart) {
+              start = new Date(nextStart.getTime() - duration * 60_000);
+            } else {
+              start = date;
+            }
+          }
         } else {
           start = new Date(date);
           start.setHours(block.anchor.hour, block.anchor.minute, 0, 0);

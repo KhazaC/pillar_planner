@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/useStore';
 import {
+  type TaskDefinition,
   DIFFICULTY_LABELS,
   createTaskDefinition,
   TaskDifficulty,
@@ -12,6 +13,7 @@ export function TaskRegistryView() {
   const { taskDefinitions, deleteTaskDefinition } = useStore();
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
+  const [editingTask, setEditingTask] = useState<TaskDefinition | null>(null);
 
   const filtered = search
     ? taskDefinitions.filter((t) =>
@@ -53,6 +55,13 @@ export function TaskRegistryView() {
               {task.defaultProjectIDs.length > 0 ? ' · 📁' : ''}
             </p>
           </div>
+          <button
+            className="edit-btn"
+            style={{ marginRight: 8 }}
+            onClick={() => setEditingTask(task)}
+          >
+            Edit
+          </button>
           <button className="delete-btn" onClick={() => deleteTaskDefinition(task.id)}>
             ✕
           </button>
@@ -74,27 +83,50 @@ export function TaskRegistryView() {
       </button>
 
       {showForm && <TaskFormModal onClose={() => setShowForm(false)} />}
+      {editingTask && (
+        <TaskFormModal
+          task={editingTask}
+          onClose={() => setEditingTask(null)}
+        />
+      )}
     </div>
   );
 }
 
-function TaskFormModal({ onClose }: { onClose: () => void }) {
-  const { addTaskDefinition, projects } = useStore();
-  const [title, setTitle] = useState('');
-  const [difficulty, setDifficulty] = useState<TaskDifficulty>(TaskDifficulty.Low);
-  const [duration, setDuration] = useState<number | ''>('');
-  const [linkedProjectId, setLinkedProjectId] = useState<string | null>(null);
+function TaskFormModal({
+  task,
+  onClose,
+}: {
+  task?: TaskDefinition;
+  onClose: () => void;
+}) {
+  const { addTaskDefinition, updateTaskDefinition, projects } = useStore();
+  const isEdit = !!task;
+  const [title, setTitle] = useState(task?.title || '');
+  const [difficulty, setDifficulty] = useState<TaskDifficulty>(task?.defaultDifficulty || TaskDifficulty.Low);
+  const [duration, setDuration] = useState<number | ''>(task?.defaultDurationMinutes ?? '');
+  const [linkedProjectId, setLinkedProjectId] = useState<string | null>(task?.defaultProjectIDs[0] || null);
 
   const handleSave = () => {
     if (!title.trim()) return;
-    addTaskDefinition(
-      createTaskDefinition({
+    if (task) {
+      updateTaskDefinition({
+        ...task,
         title,
         defaultDifficulty: difficulty,
         defaultDurationMinutes: duration || null,
         defaultProjectIDs: linkedProjectId ? [linkedProjectId] : [],
-      })
-    );
+      });
+    } else {
+      addTaskDefinition(
+        createTaskDefinition({
+          title,
+          defaultDifficulty: difficulty,
+          defaultDurationMinutes: duration || null,
+          defaultProjectIDs: linkedProjectId ? [linkedProjectId] : [],
+        })
+      );
+    }
     onClose();
   };
 
@@ -102,7 +134,7 @@ function TaskFormModal({ onClose }: { onClose: () => void }) {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-sheet" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>New Task Definition</h2>
+          <h2>{isEdit ? 'Edit Task Definition' : 'New Task Definition'}</h2>
           <button className="modal-close" onClick={onClose}>
             Cancel
           </button>
@@ -158,7 +190,7 @@ function TaskFormModal({ onClose }: { onClose: () => void }) {
             Cancel
           </button>
           <button className="btn btn-primary" onClick={handleSave}>
-            Create
+            {isEdit ? 'Save' : 'Create'}
           </button>
         </div>
       </div>

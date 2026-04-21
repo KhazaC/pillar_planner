@@ -714,6 +714,16 @@ function RoutineEditorModal({
     setBlockIDs(blockIDs.filter((_, i) => i !== index));
   };
 
+  const moveBlock = (index: number, direction: 'up' | 'down') => {
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= blockIDs.length) return;
+
+    const updated = [...blockIDs];
+    const [moved] = updated.splice(index, 1);
+    updated.splice(targetIndex, 0, moved);
+    setBlockIDs(updated);
+  };
+
   const handleSave = () => {
     if (!name.trim()) return;
     const template: RoutineTemplate = routine
@@ -785,6 +795,24 @@ function RoutineEditorModal({
                     {b?.name || 'Unknown'}
                   </h4>
                 </div>
+                <button
+                  className="btn btn-secondary"
+                  style={{ padding: '6px 10px', fontSize: 12, marginRight: 6 }}
+                  onClick={() => moveBlock(i, 'up')}
+                  disabled={i === 0}
+                  title="Move up"
+                >
+                  ↑
+                </button>
+                <button
+                  className="btn btn-secondary"
+                  style={{ padding: '6px 10px', fontSize: 12, marginRight: 6 }}
+                  onClick={() => moveBlock(i, 'down')}
+                  disabled={i === blockIDs.length - 1}
+                  title="Move down"
+                >
+                  ↓
+                </button>
                 <button className="delete-btn" onClick={() => removeBlock(i)}>
                   ✕
                 </button>
