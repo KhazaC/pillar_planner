@@ -1,10 +1,18 @@
 import { useState } from 'react';
 import { useStore } from '../store/useStore';
-import { AdHocStatus } from '../types';
+import {
+  AdHocStatus,
+  AdHocRecurrence,
+  TaskDifficulty,
+  DIFFICULTY_LABELS,
+  createAdHocTask,
+} from '../types';
 
 export function AdHocDaySection() {
-  const { adHocPlans, toggleAdHocCompletion, skipAdHocForDay, removeAdHocPlan } = useStore();
+  const { adHocPlans, resolvedBlocks, toggleAdHocCompletion, skipAdHocForDay, removeAdHocPlan, moveAdHocPlanToBlock } = useStore();
   const [showPicker, setShowPicker] = useState(false);
+  const [movingAdHocTaskID, setMovingAdHocTaskID] = useState<string | null>(null);
+  const [targetBlockIndex, setTargetBlockIndex] = useState(0);
 
   const skippedCount = adHocPlans.filter((p) => p.isSkipped).length;
   const skipRate = adHocPlans.length > 0 ? skippedCount / adHocPlans.length : 0;
@@ -55,6 +63,15 @@ export function AdHocDaySection() {
                   Skip
                 </button>
                 <button
+                  className="adhoc-action-btn"
+                  onClick={() => {
+                    setMovingAdHocTaskID(plan.adHocTaskID);
+                    setTargetBlockIndex(0);
+                  }}
+                >
+                  Move
+                </button>
+                <button
                   className="adhoc-action-btn remove"
                   onClick={() => removeAdHocPlan(plan.adHocTaskID)}
                 >
@@ -72,19 +89,74 @@ export function AdHocDaySection() {
       )}
 
       {showPicker && <AdHocPickerModal onClose={() => setShowPicker(false)} />}
+
+      {movingAdHocTaskID && (
+        <div className="modal-overlay" onClick={() => setMovingAdHocTaskID(null)}>
+          <div className="modal-sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Move Ad-Hoc Task</h2>
+              <button className="modal-close" onClick={() => setMovingAdHocTaskID(null)}>
+                Cancel
+              </button>
+            </div>
+
+            <div className="form-group">
+              <label>Move to block</label>
+              <select
+                value={targetBlockIndex}
+                onChange={(e) => setTargetBlockIndex(Number(e.target.value))}
+              >
+                {resolvedBlocks.map((block, index) => (
+                  <option key={`${block.id}-${index}`} value={index}>
+                    {block.template.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="btn-row">
+              <button className="btn btn-secondary" onClick={() => setMovingAdHocTaskID(null)}>
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  moveAdHocPlanToBlock(movingAdHocTaskID, targetBlockIndex);
+                  setMovingAdHocTaskID(null);
+                }}
+              >
+                Move to Day Plan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 function AdHocPickerModal({ onClose }: { onClose: () => void }) {
-  const { adHocTasks, adHocPlans, planAdHocForDay } = useStore();
+  const {
+    adHocTasks,
+    adHocPlans,
+    taskDefinitions,
+    addAdHocTask,
+    findOrCreateTaskDefinition,
+    planAdHocForDay,
+  } = useStore();
   const [search, setSearch] = useState('');
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
   const activeTasks = adHocTasks.filter((t) => t.status === AdHocStatus.Active);
   const plannedIds = new Set(adHocPlans.map((p) => p.adHocTaskID));
 
+  const taskLabel = (taskID: string) => {
+    const td = taskDefinitions.find((t) => t.id === taskID);
+    return td?.title || 'Unknown task';
+  };
+
   const filtered = activeTasks.filter((t) =>
-    t.taskID.toLowerCase().includes(search.toLowerCase())
+    taskLabel(t.taskID).toLowerCase().includes(search.toLowerCase())
   );
 
   return (
@@ -92,9 +164,14 @@ function AdHocPickerModal({ onClose }: { onClose: () => void }) {
       <div className="modal-sheet" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Plan Ad-Hoc Tasks</h2>
-          <button className="modal-close" onClick={onClose}>
-            Done
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn btn-secondary" onClick={() => setShowCreateModal(true)}>
+              + New
+            </button>
+            <button className="modal-close" onClick={onClose}>
+              Done
+            </button>
+          </div>
         </div>
 
         <input
@@ -113,7 +190,7 @@ function AdHocPickerModal({ onClose }: { onClose: () => void }) {
           filtered.map((task) => (
             <div key={task.id} className="list-item">
               <div className="list-item-info">
-                <h4>{task.taskID}</h4>
+                <h4>{taskLabel(task.taskID)}</h4>
                 <p>
                   {task.estimatedMinutes ? `${task.estimatedMinutes}m` : ''}{' '}
                   {task.recurrence}
@@ -133,6 +210,119 @@ function AdHocPickerModal({ onClose }: { onClose: () => void }) {
             </div>
           ))
         )}
+
+        {showCreateModal && (
+          <AdHocCreateModal
+            onClose={() => setShowCreateModal(false)}
+            onCreate={({ title, recurrence, estimatedMinutes, difficulty }) => {
+              const taskDef = findOrCreateTaskDefinition(title);
+              addAdHocTask(
+                createAdHocTask({
+                  taskID: taskDef.id,
+                  recurrence,
+                  estimatedMinutes,
+                  difficulty,
+                })
+              );
+              setShowCreateModal(false);
+            }}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AdHocCreateModal({
+  onClose,
+  onCreate,
+}: {
+  onClose: () => void;
+  onCreate: (payload: {
+    title: string;
+    recurrence: AdHocRecurrence;
+    estimatedMinutes: number | null;
+    difficulty: TaskDifficulty;
+  }) => void;
+}) {
+  const [title, setTitle] = useState('');
+  const [recurrence, setRecurrence] = useState<AdHocRecurrence>(AdHocRecurrence.RePlannable);
+  const [estimatedMinutes, setEstimatedMinutes] = useState<number | ''>('');
+  const [difficulty, setDifficulty] = useState<TaskDifficulty>(TaskDifficulty.Low);
+
+  const handleCreate = () => {
+    const normalized = title.trim();
+    if (!normalized) return;
+    onCreate({
+      title: normalized,
+      recurrence,
+      estimatedMinutes: estimatedMinutes === '' ? null : estimatedMinutes,
+      difficulty,
+    });
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-sheet" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>New Ad-Hoc Task</h2>
+          <button className="modal-close" onClick={onClose}>
+            Cancel
+          </button>
+        </div>
+
+        <div className="form-group">
+          <label>Title</label>
+          <input value={title} onChange={(e) => setTitle(e.target.value)} />
+        </div>
+
+        <div className="form-group">
+          <label>Recurrence</label>
+          <select
+            value={recurrence}
+            onChange={(e) => setRecurrence(e.target.value as AdHocRecurrence)}
+          >
+            {Object.values(AdHocRecurrence).map((r) => (
+              <option key={r} value={r}>
+                {r}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="form-group">
+          <label>Estimated Duration (minutes, optional)</label>
+          <input
+            type="number"
+            value={estimatedMinutes}
+            onChange={(e) =>
+              setEstimatedMinutes(e.target.value ? Number(e.target.value) : '')
+            }
+          />
+        </div>
+
+        <div className="form-group">
+          <label>Default Rating</label>
+          <select
+            value={difficulty}
+            onChange={(e) => setDifficulty(Number(e.target.value) as TaskDifficulty)}
+          >
+            {Object.entries(DIFFICULTY_LABELS).map(([k, v]) => (
+              <option key={k} value={k}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="btn-row">
+          <button className="btn btn-secondary" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn btn-primary" onClick={handleCreate}>
+            Create
+          </button>
+        </div>
       </div>
     </div>
   );

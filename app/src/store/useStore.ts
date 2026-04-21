@@ -116,6 +116,7 @@ interface AppState {
   updateAdHocTask: (task: AdHocTask) => void;
   deleteAdHocTask: (id: string) => void;
   planAdHocForDay: (adHocTask: AdHocTask) => void;
+  moveAdHocPlanToBlock: (adHocTaskID: string, blockIndex: number) => void;
   toggleAdHocCompletion: (adHocTaskID: string) => void;
   skipAdHocForDay: (adHocTaskID: string) => void;
   removeAdHocPlan: (adHocTaskID: string) => void;
@@ -329,6 +330,7 @@ export const useStore = create<AppState>((set, get) => ({
                   difficulty: (al.actualDifficulty as TaskDifficulty) || al.difficulty,
                   defaultProjectIDs: al.projectIDs || [],
                   taskID: al.taskDefinitionID,
+                  adHocTaskID: al.adHocTaskID ?? null,
                 });
               });
 
@@ -372,6 +374,7 @@ export const useStore = create<AppState>((set, get) => ({
     const block = { ...blocks[blockIndex] };
     const actions = [...block.actions];
     actions[actionIndex] = { ...actions[actionIndex], isCompleted: !actions[actionIndex].isCompleted };
+    syncAdHocFromBlockAction(actions[actionIndex], get, set);
     block.actions = actions;
     blocks[blockIndex] = block;
     set({ resolvedBlocks: blocks });
@@ -475,6 +478,7 @@ export const useStore = create<AppState>((set, get) => ({
       durationMinutes: details.durationMinutes,
       difficulty: details.difficulty,
     };
+    syncAdHocFromBlockAction(actions[actionIndex], get, set);
     block.actions = actions;
     blocks[blockIndex] = block;
     set({ resolvedBlocks: blocks });
@@ -655,6 +659,40 @@ export const useStore = create<AppState>((set, get) => ({
 
     set({ adHocPlans: loadAdHocPlans(get(), dateKey) });
   },
+  moveAdHocPlanToBlock: (adHocTaskID, blockIndex) => {
+    const dateKey = format(startOfDay(get().date), 'yyyy-MM-dd');
+    const logs = persistence.loadAdHocLogs();
+    const log = logs.find((l) => l.adHocTaskID === adHocTaskID && l.date === dateKey);
+    if (!log) return;
+
+    const adHocTask = get().adHocTasks.find((t) => t.id === adHocTaskID);
+    const taskDef = log.taskDefinitionID
+      ? get().taskDefinitions.find((td) => td.id === log.taskDefinitionID)
+      : null;
+
+    const blocks = [...get().resolvedBlocks];
+    const block = { ...blocks[blockIndex] };
+    block.actions = [
+      ...block.actions,
+      createActionItem({
+        title: taskDef?.title || adHocTask?.taskID || 'Ad-hoc Task',
+        durationMinutes: adHocTask?.estimatedMinutes ?? taskDef?.defaultDurationMinutes ?? null,
+        difficulty: adHocTask?.difficulty ?? taskDef?.defaultDifficulty ?? TaskDifficulty.Low,
+        defaultProjectIDs: taskDef?.defaultProjectIDs ?? [],
+        taskID: taskDef?.id ?? null,
+        adHocTaskID,
+      }),
+    ];
+    blocks[blockIndex] = block;
+    set({ resolvedBlocks: blocks });
+
+    // Remove from today's ad-hoc panel; completion now happens via block task.
+    persistence.saveAdHocLogs(logs.filter((l) => !(l.adHocTaskID === adHocTaskID && l.date === dateKey)));
+
+    const dayLogs = persistence.loadDayLogs();
+    saveDayLog(get(), blocks, dateKey, dayLogs);
+    set({ adHocPlans: loadAdHocPlans(get(), dateKey) });
+  },
   toggleAdHocCompletion: (adHocTaskID) => {
     const dateKey = format(startOfDay(get().date), 'yyyy-MM-dd');
     const logs = persistence.loadAdHocLogs();
@@ -808,6 +846,54 @@ export const useStore = create<AppState>((set, get) => ({
 
 // ─── Helpers ─────────────────────────────────────────────
 
+function syncAdHocFromBlockAction(
+  action: ResolvedBlock['actions'][number],
+  get: () => AppState,
+  set: (partial: Partial<AppState>) => void
+) {
+  if (!action.adHocTaskID) return;
+
+  const dateKey = format(startOfDay(get().date), 'yyyy-MM-dd');
+  const logs = persistence.loadAdHocLogs();
+  let log = logs.find((l) => l.adHocTaskID === action.adHocTaskID && l.date === dateKey);
+
+  if (!log) {
+    log = {
+      id: uuidv4(),
+      adHocTaskID: action.adHocTaskID,
+      taskDefinitionID: action.taskID,
+      date: dateKey,
+      isCompleted: false,
+      isSkipped: false,
+      effortScore: effortScore(action.durationMinutes, action.difficulty),
+      actualDifficulty: action.difficulty,
+      actualDurationMinutes: action.durationMinutes ?? 0,
+    };
+    logs.push(log);
+  }
+
+  log.isCompleted = action.isCompleted;
+  log.isSkipped = false;
+  log.taskDefinitionID = action.taskID;
+  log.actualDifficulty = action.difficulty;
+  log.actualDurationMinutes = action.durationMinutes ?? 0;
+  log.effortScore = effortScore(action.durationMinutes, action.difficulty);
+  persistence.saveAdHocLogs(logs);
+
+  if (action.isCompleted) {
+    const task = get().adHocTasks.find((t) => t.id === action.adHocTaskID);
+    if (task?.recurrence === AdHocRecurrence.OneAndDone) {
+      const updatedTasks = get().adHocTasks.map((t) =>
+        t.id === action.adHocTaskID
+          ? { ...t, status: AdHocStatus.Completed, completedDate: new Date().toISOString() }
+          : t
+      );
+      set({ adHocTasks: updatedTasks });
+      persistence.saveAdHocTasks(updatedTasks);
+    }
+  }
+}
+
 function saveDayLog(
   state: AppState,
   resolvedBlocks: ResolvedBlock[],
@@ -835,6 +921,7 @@ function saveDayLog(
         actualDifficulty: a.difficulty,
         actualDurationMinutes: a.durationMinutes ?? 0,
         taskDefinitionID: a.taskID,
+        adHocTaskID: a.adHocTaskID ?? null,
       };
     });
 

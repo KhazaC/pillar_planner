@@ -187,6 +187,7 @@ export interface ActionItem {
   difficulty: TaskDifficulty;
   defaultProjectIDs: string[];
   taskID: string | null;
+  adHocTaskID?: string | null;
 }
 
 export function createActionItem(partial: Partial<ActionItem> & { title: string }): ActionItem {
@@ -479,6 +480,7 @@ export interface ActionLog {
   actualDifficulty: number;
   actualDurationMinutes: number;
   taskDefinitionID: string | null;
+  adHocTaskID?: string | null;
 }
 
 export interface AdHocLog {
