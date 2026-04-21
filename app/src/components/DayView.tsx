@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { format } from 'date-fns';
 import { useStore } from '../store/useStore';
-import type { ResolvedBlock } from '../types';
+import type { ResolvedBlock, TaskDefinition } from '../types';
 import { AnchorPhase, COLOR_MAP, DIFFICULTY_LABELS, TaskDifficulty, effortScore } from '../types';
 import { AdHocDaySection } from './AdHocDaySection';
 
@@ -16,6 +16,8 @@ export function DayView() {
     selectRoutine,
     loadDay,
     toggleAction,
+    addActionToResolvedBlock,
+    removeActionFromResolvedBlock,
     completeActionWithDetails,
     updateNote,
   } = useStore();
@@ -121,6 +123,10 @@ export function DayView() {
                 block={block}
                 index={i}
                 onToggleAction={(ai) => handleToggleAction(i, ai)}
+                onAddTask={(title, details) => addActionToResolvedBlock(i, title, details)}
+                onRemoveTask={(ai) => removeActionFromResolvedBlock(i, ai)}
+                taskSuggestions={taskDefinitions.map((td) => td.title)}
+                taskDefinitions={taskDefinitions}
                 onUpdateNote={(note) => updateNote(i, note)}
               />
             ))}
@@ -236,15 +242,34 @@ interface BlockRowProps {
   block: ResolvedBlock;
   index: number;
   onToggleAction: (actionIndex: number) => void;
+  onAddTask: (
+    title: string,
+    details: { durationMinutes?: number | null; difficulty?: TaskDifficulty }
+  ) => void;
+  onRemoveTask: (actionIndex: number) => void;
+  taskSuggestions: string[];
+  taskDefinitions: TaskDefinition[];
   onUpdateNote: (note: string) => void;
 }
 
-function BlockRow({ block, index, onToggleAction, onUpdateNote }: BlockRowProps) {
+function BlockRow({
+  block,
+  index,
+  onToggleAction,
+  onAddTask,
+  onRemoveTask,
+  taskSuggestions,
+  taskDefinitions,
+  onUpdateNote,
+}: BlockRowProps) {
   const now = new Date();
   const isActive = now >= block.startTime && now < block.endTime;
   const isPast = now >= block.endTime;
   const [expanded, setExpanded] = useState(isActive);
   const [userToggled, setUserToggled] = useState(false);
+  const [newTaskTitle, setNewTaskTitle] = useState('');
+  const [newTaskDuration, setNewTaskDuration] = useState<number | ''>('');
+  const [newTaskDifficulty, setNewTaskDifficulty] = useState<TaskDifficulty>(TaskDifficulty.Low);
   const noteTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
@@ -281,6 +306,30 @@ function BlockRow({ block, index, onToggleAction, onUpdateNote }: BlockRowProps)
 
   // Group actions by phase if any have phases
   const hasPhases = block.actions.some((a) => a.anchorPhase !== AnchorPhase.None);
+  const canAddTasks = block.template.anchor.type === 'filler';
+
+  const handleAddTask = () => {
+    const normalized = newTaskTitle.trim();
+    if (!normalized) return;
+    onAddTask(normalized, {
+      durationMinutes: newTaskDuration === '' ? null : newTaskDuration,
+      difficulty: newTaskDifficulty,
+    });
+    setNewTaskTitle('');
+    setNewTaskDuration('');
+    setNewTaskDifficulty(TaskDifficulty.Low);
+  };
+
+  const handleTaskTitleChange = (value: string) => {
+    setNewTaskTitle(value);
+    const matched = taskDefinitions.find(
+      (td) => td.title.trim().toLowerCase() === value.trim().toLowerCase()
+    );
+    if (!matched) return;
+
+    setNewTaskDuration(matched.defaultDurationMinutes ?? '');
+    setNewTaskDifficulty(matched.defaultDifficulty);
+  };
 
   return (
     <div className="block-row" data-block-index={index}>
@@ -309,6 +358,56 @@ function BlockRow({ block, index, onToggleAction, onUpdateNote }: BlockRowProps)
 
         {expanded && (
           <div className={`block-expanded ${isActive ? 'block-active-bg' : ''}`}>
+            {canAddTasks && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px 130px auto', gap: 6, marginBottom: 8 }}>
+                <input
+                  value={newTaskTitle}
+                  list={`exert-task-suggestions-${index}`}
+                  placeholder="Add exert task for today"
+                  onChange={(e) => handleTaskTitleChange(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleAddTask();
+                    }
+                  }}
+                  onBlur={(e) => handleTaskTitleChange(e.target.value)}
+                  style={{ flex: 1 }}
+                />
+                <datalist id={`exert-task-suggestions-${index}`}>
+                  {taskSuggestions.map((title) => (
+                    <option key={title} value={title} />
+                  ))}
+                </datalist>
+                <input
+                  type="number"
+                  min={1}
+                  placeholder="min"
+                  value={newTaskDuration}
+                  onChange={(e) => setNewTaskDuration(e.target.value ? Number(e.target.value) : '')}
+                />
+                <select
+                  value={newTaskDifficulty}
+                  onChange={(e) => setNewTaskDifficulty(Number(e.target.value) as TaskDifficulty)}
+                >
+                  {Object.entries(DIFFICULTY_LABELS).map(([k, v]) => (
+                    <option key={k} value={k}>
+                      {v}
+                    </option>
+                  ))}
+                </select>
+                <button className="btn btn-secondary" onClick={handleAddTask}>
+                  Add
+                </button>
+              </div>
+            )}
+
+            {block.actions.length === 0 && canAddTasks && (
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
+                No tasks yet. Add what you want to do in this exert block.
+              </div>
+            )}
+
             {hasPhases ? (
               <PhasedActions actions={block.actions} onToggle={onToggleAction} />
             ) : (
@@ -317,6 +416,7 @@ function BlockRow({ block, index, onToggleAction, onUpdateNote }: BlockRowProps)
                   key={action.id}
                   action={action}
                   onToggle={() => onToggleAction(ai)}
+                  onRemove={canAddTasks ? () => onRemoveTask(ai) : undefined}
                 />
               ))
             )}
@@ -384,9 +484,11 @@ function PhasedActions({
 function ActionRow({
   action,
   onToggle,
+  onRemove,
 }: {
   action: ResolvedBlock['actions'][0];
   onToggle: () => void;
+  onRemove?: () => void;
 }) {
   const pts = effortScore(action.durationMinutes, action.difficulty);
 
@@ -409,6 +511,11 @@ function ActionRow({
           </span>
         </div>
       </div>
+      {onRemove && (
+        <button className="delete-btn" onClick={onRemove} title="Remove task">
+          ✕
+        </button>
+      )}
     </div>
   );
 }

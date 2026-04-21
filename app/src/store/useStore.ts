@@ -12,6 +12,7 @@ import type {
   AdHocLog,
 } from '../types';
 import {
+  AnchorPhase,
   NotificationMode,
   AdHocStatus,
   AdHocRecurrence,
@@ -19,6 +20,7 @@ import {
   TaskDifficulty,
   DEFAULT_IQAMAH_SCHEDULE,
   effortScore,
+  createActionItem,
   createTaskDefinition,
   formatTimeOfDay,
 } from '../types';
@@ -66,6 +68,12 @@ interface AppState {
   loadDay: () => Promise<void>;
   selectRoutine: (routine: RoutineTemplate) => void;
   toggleAction: (blockIndex: number, actionIndex: number) => void;
+  addActionToResolvedBlock: (
+    blockIndex: number,
+    title: string,
+    details?: { durationMinutes?: number | null; difficulty?: TaskDifficulty }
+  ) => void;
+  removeActionFromResolvedBlock: (blockIndex: number, actionIndex: number) => void;
   completeActionWithDetails: (
     blockIndex: number,
     actionIndex: number,
@@ -279,21 +287,55 @@ export const useStore = create<AppState>((set, get) => ({
       const dayLog = dayLogs.find((d) => d.date === dateKey);
 
       if (dayLog) {
-        const actionMap = new Map<string, boolean>();
-        const noteMap = new Map<string, string>();
+        const blockMap = new Map(dayLog.blockLogs.map((bl) => [bl.orderIndex, bl]));
+        const actionMap = new Map<string, { isCompleted: boolean; durationMinutes: number; difficulty: TaskDifficulty }>();
+        const noteMap = new Map<number, string>();
         dayLog.blockLogs.forEach((bl) => {
-          if (bl.note) noteMap.set(bl.blockId, bl.note);
+          if (bl.note) noteMap.set(bl.orderIndex, bl.note);
           bl.actionLogs.forEach((al) => {
-            actionMap.set(al.id, al.isCompleted);
+            actionMap.set(al.id, {
+              isCompleted: al.isCompleted,
+              durationMinutes: al.actualDurationMinutes || al.durationMinutes,
+              difficulty: (al.actualDifficulty as TaskDifficulty) || al.difficulty,
+            });
           });
         });
 
-        resolved.forEach((rb) => {
-          const note = noteMap.get(rb.template.id);
+        resolved.forEach((rb, orderIndex) => {
+          const note = noteMap.get(orderIndex);
           if (note) rb.note = note;
+
+          const blockLog = blockMap.get(orderIndex);
+          if (blockLog) {
+            const currentById = new Map(rb.actions.map((a) => [a.id, a]));
+            const mergedFromLog = [...blockLog.actionLogs]
+              .sort((a, b) => a.orderIndex - b.orderIndex)
+              .map((al) => {
+                const existing = currentById.get(al.id);
+                if (existing) return existing;
+                return createActionItem({
+                  id: al.id,
+                  title: al.title,
+                  isCompleted: al.isCompleted,
+                  durationMinutes: (al.actualDurationMinutes || al.durationMinutes) || null,
+                  anchorPhase: (al.anchorPhase as AnchorPhase) || AnchorPhase.None,
+                  difficulty: (al.actualDifficulty as TaskDifficulty) || al.difficulty,
+                  defaultProjectIDs: al.projectIDs || [],
+                  taskID: al.taskDefinitionID,
+                });
+              });
+
+            const mergedIds = new Set(mergedFromLog.map((a) => a.id));
+            const missingCurrent = rb.actions.filter((a) => !mergedIds.has(a.id));
+            rb.actions = [...mergedFromLog, ...missingCurrent];
+          }
+
           rb.actions.forEach((a) => {
-            const completed = actionMap.get(a.id);
-            if (completed !== undefined) a.isCompleted = completed;
+            const saved = actionMap.get(a.id);
+            if (!saved) return;
+            a.isCompleted = saved.isCompleted;
+            a.durationMinutes = saved.durationMinutes || null;
+            a.difficulty = saved.difficulty;
           });
         });
       }
@@ -326,6 +368,66 @@ export const useStore = create<AppState>((set, get) => ({
     set({ resolvedBlocks: blocks });
 
     // Persist
+    const dateKey = format(startOfDay(get().date), 'yyyy-MM-dd');
+    const dayLogs = persistence.loadDayLogs();
+    saveDayLog(get(), blocks, dateKey, dayLogs);
+  },
+
+  addActionToResolvedBlock: (blockIndex, title, details) => {
+    const normalized = title.trim();
+    if (!normalized) return;
+
+    const state = get();
+    let taskDefs = state.taskDefinitions;
+    let taskDef = taskDefs.find(
+      (td) => td.title.trim().toLowerCase() === normalized.toLowerCase()
+    );
+
+    if (!taskDef) {
+      taskDef = createTaskDefinition({
+        title: normalized,
+        defaultDurationMinutes: details?.durationMinutes ?? null,
+        defaultDifficulty: details?.difficulty ?? TaskDifficulty.Low,
+      });
+      taskDefs = [...taskDefs, taskDef];
+      set({ taskDefinitions: taskDefs });
+      persistence.saveTaskDefinitions(taskDefs);
+    }
+
+    const durationMinutes =
+      details?.durationMinutes !== undefined
+        ? details.durationMinutes
+        : taskDef.defaultDurationMinutes;
+    const difficulty = details?.difficulty ?? taskDef.defaultDifficulty;
+
+    const blocks = [...get().resolvedBlocks];
+    const block = { ...blocks[blockIndex] };
+    const actions = [
+      ...block.actions,
+      createActionItem({
+        title: taskDef.title,
+        taskID: taskDef.id,
+        durationMinutes,
+        difficulty,
+        defaultProjectIDs: taskDef.defaultProjectIDs,
+      }),
+    ];
+    block.actions = actions;
+    blocks[blockIndex] = block;
+    set({ resolvedBlocks: blocks });
+
+    const dateKey = format(startOfDay(get().date), 'yyyy-MM-dd');
+    const dayLogs = persistence.loadDayLogs();
+    saveDayLog(get(), blocks, dateKey, dayLogs);
+  },
+
+  removeActionFromResolvedBlock: (blockIndex, actionIndex) => {
+    const blocks = [...get().resolvedBlocks];
+    const block = { ...blocks[blockIndex] };
+    block.actions = block.actions.filter((_, i) => i !== actionIndex);
+    blocks[blockIndex] = block;
+    set({ resolvedBlocks: blocks });
+
     const dateKey = format(startOfDay(get().date), 'yyyy-MM-dd');
     const dayLogs = persistence.loadDayLogs();
     saveDayLog(get(), blocks, dateKey, dayLogs);

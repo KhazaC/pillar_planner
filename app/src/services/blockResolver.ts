@@ -163,6 +163,7 @@ export function resolveBlocks(
         const namedBlock: BlockTemplate = {
           ...block,
           name: `Exert ${exertIndex}`,
+          actions: [],
           overallDurationMinutes: fillerDuration,
         };
         exertIndex++;
