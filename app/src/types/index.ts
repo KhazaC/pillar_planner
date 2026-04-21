@@ -325,7 +325,6 @@ export interface Project {
   cadence: ProjectCadence;
   isActive: boolean;
   tracksCompletion: boolean;
-  exertEligible: boolean;
   status: ProjectLifecycleStatus;
   completionNote: string | null;
   completionDate: string | null; // ISO date
@@ -339,7 +338,6 @@ export function createProject(partial: Partial<Project> & { name: string }): Pro
     cadence: ProjectCadence.Weekly,
     isActive: true,
     tracksCompletion: false,
-    exertEligible: true,
     status: ProjectLifecycleStatus.Active,
     completionNote: null,
     completionDate: null,

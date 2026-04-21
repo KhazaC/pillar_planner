@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/useStore';
 import {
+  type Project,
   ProjectLifecycleStatus,
   ProjectPriority,
   ProjectCadence,
@@ -21,6 +22,7 @@ export function ProjectListView() {
 
   const [filter, setFilter] = useState<string>('Active');
   const [showForm, setShowForm] = useState(false);
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
 
   const filters = ['Active', 'Completed', 'Archived', 'Abandoned', 'All'];
 
@@ -60,6 +62,12 @@ export function ProjectListView() {
             </p>
           </div>
           <div className="list-item-actions">
+            <button
+              className="edit-btn"
+              onClick={() => setEditingProject(project)}
+            >
+              Edit
+            </button>
             {project.status === ProjectLifecycleStatus.Active ? (
               <>
                 <button
@@ -105,31 +113,53 @@ export function ProjectListView() {
       </button>
 
       {showForm && <ProjectFormModal onClose={() => setShowForm(false)} />}
+      {editingProject && (
+        <ProjectFormModal
+          project={editingProject}
+          onClose={() => setEditingProject(null)}
+        />
+      )}
     </div>
   );
 }
 
-function ProjectFormModal({ onClose }: { onClose: () => void }) {
-  const { addProject } = useStore();
-  const [name, setName] = useState('');
-  const [category, setCategory] = useState('');
-  const [priority, setPriority] = useState<ProjectPriority>(ProjectPriority.Medium);
-  const [cadence, setCadence] = useState<ProjectCadence>(ProjectCadence.Weekly);
-  const [tracksCompletion, setTracksCompletion] = useState(false);
-  const [exertEligible, setExertEligible] = useState(true);
+function ProjectFormModal({
+  project,
+  onClose,
+}: {
+  project?: Project;
+  onClose: () => void;
+}) {
+  const { addProject, updateProject } = useStore();
+  const isEdit = !!project;
+  const [name, setName] = useState(project?.name || '');
+  const [category, setCategory] = useState(project?.category || '');
+  const [priority, setPriority] = useState<ProjectPriority>(project?.priority || ProjectPriority.Medium);
+  const [cadence, setCadence] = useState<ProjectCadence>(project?.cadence || ProjectCadence.Weekly);
+  const [tracksCompletion, setTracksCompletion] = useState(project?.tracksCompletion || false);
 
   const handleSave = () => {
     if (!name.trim()) return;
-    addProject(
-      createProject({
+    if (project) {
+      updateProject({
+        ...project,
         name,
         category,
         priority,
         cadence,
         tracksCompletion,
-        exertEligible,
-      })
-    );
+      });
+    } else {
+      addProject(
+        createProject({
+          name,
+          category,
+          priority,
+          cadence,
+          tracksCompletion,
+        })
+      );
+    }
     onClose();
   };
 
@@ -137,7 +167,7 @@ function ProjectFormModal({ onClose }: { onClose: () => void }) {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-sheet" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>New Project</h2>
+          <h2>{isEdit ? 'Edit Project' : 'New Project'}</h2>
           <button className="modal-close" onClick={onClose}>
             Cancel
           </button>
@@ -186,20 +216,12 @@ function ProjectFormModal({ onClose }: { onClose: () => void }) {
           />
         </div>
 
-        <div className="settings-row" style={{ marginTop: 4 }}>
-          <label>Exert Eligible</label>
-          <div
-            className={`toggle ${exertEligible ? 'on' : ''}`}
-            onClick={() => setExertEligible(!exertEligible)}
-          />
-        </div>
-
         <div className="btn-row">
           <button className="btn btn-secondary" onClick={onClose}>
             Cancel
           </button>
           <button className="btn btn-primary" onClick={handleSave}>
-            Create
+            {isEdit ? 'Save' : 'Create'}
           </button>
         </div>
       </div>
