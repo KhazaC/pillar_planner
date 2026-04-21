@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/useStore';
+import quickStartBundle from '../data/quickStartBundle.json';
 import type { BlockTemplate, RoutineTemplate, BlockAnchor } from '../types';
 import {
   NotificationMode,
@@ -34,6 +35,7 @@ export function SettingsView() {
     deleteRoutine,
     exportBundle,
     importBundle,
+    initialize,
   } = useStore();
 
   const [cityInput, setCityInput] = useState(city);
@@ -61,8 +63,19 @@ export function SettingsView() {
   const handleImport = (mode: 'replace' | 'merge') => {
     if (importText.trim()) {
       importBundle(importText, mode);
+      initialize();
       setImportText('');
     }
+  };
+
+  const handleQuickStart = () => {
+    const confirmed = window.confirm(
+      'Load quick start bundle and replace your current templates, routines, projects, and tasks?'
+    );
+    if (!confirmed) return;
+
+    importBundle(JSON.stringify(quickStartBundle), 'replace');
+    initialize();
   };
 
   return (
@@ -216,6 +229,13 @@ export function SettingsView() {
       {/* Import/Export */}
       <div className="settings-section">
         <h3>Import / Export</h3>
+        <button
+          className="btn btn-primary"
+          style={{ width: '100%', marginBottom: 8 }}
+          onClick={handleQuickStart}
+        >
+          Load Quick Start Bundle
+        </button>
         <button className="btn btn-secondary" style={{ width: '100%', marginBottom: 8 }} onClick={handleExport}>
           Export JSON Bundle
         </button>
