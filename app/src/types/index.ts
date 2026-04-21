@@ -116,21 +116,28 @@ export enum AdHocStatus {
 // ─── Tagged Unions ───────────────────────────────────────
 
 export type BlockAnchor =
-  | { type: 'prayerTime'; prayer: PrayerTime; offsetMinutes: number }
-  | { type: 'iqamahTime'; prayer: PrayerTime; offsetMinutes: number }
+  | { type: 'prayerTime'; prayer: PrayerTime; offsetMinutes: number | null }
+  | { type: 'iqamahTime'; prayer: PrayerTime; offsetMinutes: number | null }
   | { type: 'fixedTime'; hour: number; minute: number }
   | { type: 'filler' };
 
 export function anchorShortLabel(anchor: BlockAnchor): string {
   switch (anchor.type) {
     case 'prayerTime': {
+      if (anchor.offsetMinutes == null) {
+        return `@ ${anchor.prayer} (auto)`;
+      }
       const sign = anchor.offsetMinutes >= 0 ? '+' : '';
       return anchor.offsetMinutes === 0
         ? `@ ${anchor.prayer}`
         : `@ ${anchor.prayer} ${sign}${anchor.offsetMinutes}m`;
     }
     case 'iqamahTime':
-      return `Iqamah ${anchor.prayer}`;
+      return anchor.offsetMinutes == null
+        ? `Iqamah ${anchor.prayer} (auto)`
+        : anchor.offsetMinutes === 0
+          ? `Iqamah ${anchor.prayer}`
+          : `Iqamah ${anchor.prayer} ${anchor.offsetMinutes >= 0 ? '+' : ''}${anchor.offsetMinutes}m`;
     case 'fixedTime':
       if (anchor.hour === 0 && anchor.minute === 0) return '→ chain';
       return `@ ${String(anchor.hour).padStart(2, '0')}:${String(anchor.minute).padStart(2, '0')}`;
@@ -216,6 +223,16 @@ export function blockPreAnchorMinutes(block: BlockTemplate): number {
   return block.actions
     .filter((a) => a.anchorPhase === AnchorPhase.PreAnchor)
     .reduce((s, a) => s + (a.durationMinutes ?? 0), 0);
+}
+
+export function blockAnchorOffsetMinutes(block: BlockTemplate): number {
+  if (block.anchor.type === 'prayerTime') {
+    return block.anchor.offsetMinutes ?? -blockPreAnchorMinutes(block);
+  }
+  if (block.anchor.type === 'iqamahTime') {
+    return block.anchor.offsetMinutes ?? 0;
+  }
+  return 0;
 }
 
 export function createBlockTemplate(

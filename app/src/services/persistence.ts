@@ -13,6 +13,8 @@ const KEYS = {
   iqamahSchedule: 'sigh_iqamahSchedule',
   city: 'sigh_city',
   notificationMode: 'sigh_notificationMode',
+  includeNap: 'sigh_includeNap',
+  selectedRoutineId: 'sigh_selectedRoutineId',
   taskMigrationDone: 'sigh_taskMigrationDone',
 } as const;
 
@@ -84,6 +86,25 @@ export function loadNotificationMode(): NotificationMode {
 }
 export function saveNotificationMode(v: NotificationMode) {
   localStorage.setItem(KEYS.notificationMode, v);
+}
+
+export function loadIncludeNap(defaultValue: boolean): boolean {
+  const raw = localStorage.getItem(KEYS.includeNap);
+  if (raw === null) return defaultValue;
+  return raw === 'true';
+}
+export function saveIncludeNap(v: boolean) {
+  localStorage.setItem(KEYS.includeNap, String(v));
+}
+
+export function loadSelectedRoutineId(): string | null {
+  return localStorage.getItem(KEYS.selectedRoutineId);
+}
+export function saveSelectedRoutineId(v: string) {
+  localStorage.setItem(KEYS.selectedRoutineId, v);
+}
+export function clearSelectedRoutineId() {
+  localStorage.removeItem(KEYS.selectedRoutineId);
 }
 
 export function isTaskMigrationDone(): boolean {

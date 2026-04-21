@@ -6,10 +6,13 @@ import {
   NotificationMode,
   COLOR_MAP,
   anchorShortLabel,
+  blockDurationMinutes,
+  blockPreAnchorMinutes,
   PrayerTime,
   createBlockTemplate,
   createRoutineTemplate,
   createActionItem,
+  createTaskDefinition,
   AnchorPhase,
   TaskDifficulty,
   DIFFICULTY_LABELS,
@@ -134,7 +137,7 @@ export function SettingsView() {
                 />
                 {b.name}
               </h4>
-              <p>{anchorShortLabel(b.anchor)} · {b.actions.length} actions</p>
+              <p>{anchorShortLabel(b.anchor)} · {b.actions.length} tasks</p>
             </div>
             <div className="list-item-actions">
               <button className="edit-btn" onClick={() => setShowBlockEditor(b)}>
@@ -263,7 +266,7 @@ function BlockEditorModal({
   block: BlockTemplate | null;
   onClose: () => void;
 }) {
-  const { addBlock, updateBlock } = useStore();
+  const { addBlock, updateBlock, taskDefinitions, addTaskDefinition } = useStore();
   const isNew = !block;
 
   const [name, setName] = useState(block?.name || '');
@@ -276,10 +279,10 @@ function BlockEditorModal({
       ? block.anchor.prayer
       : PrayerTime.Fajr)
   );
-  const [offsetMinutes, setOffsetMinutes] = useState(
+  const [offsetMinutes, setOffsetMinutes] = useState<number | ''>(
     block?.anchor.type === 'prayerTime' || block?.anchor.type === 'iqamahTime'
-      ? block.anchor.offsetMinutes
-      : 0
+      ? (block.anchor.offsetMinutes ?? '')
+      : ''
   );
   const [fixedHour, setFixedHour] = useState(
     block?.anchor.type === 'fixedTime' ? block.anchor.hour : 0
@@ -287,16 +290,24 @@ function BlockEditorModal({
   const [fixedMinute, setFixedMinute] = useState(
     block?.anchor.type === 'fixedTime' ? block.anchor.minute : 0
   );
-  const [duration, setDuration] = useState(block?.overallDurationMinutes ?? 30);
+  const [duration, setDuration] = useState<number | ''>(block?.overallDurationMinutes ?? '');
   const [earlyNotif, setEarlyNotif] = useState(block?.earlyNotificationMinutes || 0);
   const [actions, setActions] = useState(block?.actions || []);
 
   const buildAnchor = (): BlockAnchor => {
     switch (anchorType) {
       case 'prayerTime':
-        return { type: 'prayerTime', prayer, offsetMinutes };
+        return {
+          type: 'prayerTime',
+          prayer,
+          offsetMinutes: offsetMinutes === '' ? null : offsetMinutes,
+        };
       case 'iqamahTime':
-        return { type: 'iqamahTime', prayer, offsetMinutes };
+        return {
+          type: 'iqamahTime',
+          prayer,
+          offsetMinutes: offsetMinutes === '' ? null : offsetMinutes,
+        };
       case 'fixedTime':
         return { type: 'fixedTime', hour: fixedHour, minute: fixedMinute };
       case 'filler':
@@ -304,25 +315,38 @@ function BlockEditorModal({
     }
   };
 
+  const previewBlock: BlockTemplate = {
+    id: block?.id || 'preview',
+    name: name || 'Preview',
+    anchor: buildAnchor(),
+    actions,
+    overallDurationMinutes: null,
+    earlyNotificationMinutes: earlyNotif,
+    colorTag,
+  };
+  const derivedDuration = blockDurationMinutes(previewBlock);
+  const derivedPreAnchor = blockPreAnchorMinutes(previewBlock);
+
   const handleSave = () => {
     if (!name.trim()) return;
+    const cleanedActions = actions.filter((a) => a.taskID && a.title.trim());
     const template: BlockTemplate = block
       ? {
           ...block,
           name,
           colorTag,
           anchor: buildAnchor(),
-          overallDurationMinutes: anchorType === 'filler' ? null : duration,
+          overallDurationMinutes: anchorType === 'filler' || duration === '' ? null : duration,
           earlyNotificationMinutes: earlyNotif,
-          actions,
+          actions: cleanedActions,
         }
       : createBlockTemplate({
           name,
           colorTag,
           anchor: buildAnchor(),
-          overallDurationMinutes: anchorType === 'filler' ? null : duration,
+          overallDurationMinutes: anchorType === 'filler' || duration === '' ? null : duration,
           earlyNotificationMinutes: earlyNotif,
-          actions,
+          actions: cleanedActions,
         });
 
     if (isNew) addBlock(template);
@@ -331,7 +355,18 @@ function BlockEditorModal({
   };
 
   const addAction = () => {
-    setActions([...actions, createActionItem({ title: '' })]);
+    if (taskDefinitions.length === 0) return;
+    const td = taskDefinitions[0];
+    setActions([
+      ...actions,
+      createActionItem({
+        title: td.title,
+        taskID: td.id,
+        durationMinutes: td.defaultDurationMinutes,
+        difficulty: td.defaultDifficulty,
+        defaultProjectIDs: td.defaultProjectIDs,
+      }),
+    ]);
   };
 
   const updateAction = (index: number, updates: Partial<(typeof actions)[0]>) => {
@@ -344,7 +379,51 @@ function BlockEditorModal({
     setActions(actions.filter((_, i) => i !== index));
   };
 
-  const prayers = Object.values(PrayerTime).filter((p) => p !== PrayerTime.Sunrise);
+  const moveAction = (index: number, direction: 'up' | 'down') => {
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= actions.length) return;
+
+    const updated = [...actions];
+    const [moved] = updated.splice(index, 1);
+    updated.splice(targetIndex, 0, moved);
+    setActions(updated);
+  };
+
+  const linkActionToTask = (index: number, taskId: string) => {
+    const td = taskDefinitions.find((t) => t.id === taskId);
+    if (!td) return;
+    updateAction(index, {
+      taskID: td.id,
+      title: td.title,
+      durationMinutes: td.defaultDurationMinutes,
+      difficulty: td.defaultDifficulty,
+      defaultProjectIDs: td.defaultProjectIDs,
+    });
+  };
+
+  const createTaskAndLink = (index: number, title: string) => {
+    const normalized = title.trim();
+    if (!normalized) return;
+    const existing = taskDefinitions.find(
+      (td) => td.title.trim().toLowerCase() === normalized.toLowerCase()
+    );
+    const td =
+      existing ||
+      createTaskDefinition({
+        title: normalized,
+        defaultDurationMinutes: actions[index]?.durationMinutes ?? null,
+        defaultDifficulty: actions[index]?.difficulty ?? TaskDifficulty.Low,
+        defaultProjectIDs: actions[index]?.defaultProjectIDs ?? [],
+      });
+
+    if (!existing) {
+      addTaskDefinition(td);
+    }
+
+    linkActionToTask(index, td.id);
+  };
+
+  const prayers = Object.values(PrayerTime);
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -413,7 +492,10 @@ function BlockEditorModal({
               <input
                 type="number"
                 value={offsetMinutes}
-                onChange={(e) => setOffsetMinutes(Number(e.target.value))}
+                placeholder={anchorType === 'prayerTime' ? `Auto (-${derivedPreAnchor}m)` : 'Auto'}
+                onChange={(e) =>
+                  setOffsetMinutes(e.target.value === '' ? '' : Number(e.target.value))
+                }
               />
             </div>
           </>
@@ -453,7 +535,8 @@ function BlockEditorModal({
               max={480}
               step={5}
               value={duration}
-              onChange={(e) => setDuration(Number(e.target.value))}
+              placeholder={`Auto (${derivedDuration}m)`}
+              onChange={(e) => setDuration(e.target.value === '' ? '' : Number(e.target.value))}
             />
           </div>
         )}
@@ -470,9 +553,14 @@ function BlockEditorModal({
           />
         </div>
 
-        {/* Actions */}
+        {/* Tasks */}
         <div className="form-group">
-          <label>Actions</label>
+          <label>Tasks</label>
+          {taskDefinitions.length === 0 && (
+            <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
+              Create tasks in Task Registry first, then add them to this block.
+            </p>
+          )}
           {actions.map((action, i) => (
             <div
               key={action.id}
@@ -484,12 +572,20 @@ function BlockEditorModal({
               }}
             >
               <div style={{ display: 'flex', gap: 6, marginBottom: 4 }}>
-                <input
-                  placeholder="Action title"
-                  value={action.title}
-                  onChange={(e) => updateAction(i, { title: e.target.value })}
+                <select
+                  value={action.taskID || ''}
+                  onChange={(e) => linkActionToTask(i, e.target.value)}
                   style={{ flex: 1 }}
-                />
+                >
+                  <option value="" disabled>
+                    Select task
+                  </option>
+                  {taskDefinitions.map((td) => (
+                    <option key={td.id} value={td.id}>
+                      {td.title}
+                    </option>
+                  ))}
+                </select>
                 <input
                   type="number"
                   placeholder="min"
@@ -501,8 +597,41 @@ function BlockEditorModal({
                   }
                   style={{ width: 60 }}
                 />
+                <button
+                  className="btn btn-secondary"
+                  style={{ padding: '6px 10px', fontSize: 12 }}
+                  onClick={() => moveAction(i, 'up')}
+                  disabled={i === 0}
+                  title="Move up"
+                >
+                  ↑
+                </button>
+                <button
+                  className="btn btn-secondary"
+                  style={{ padding: '6px 10px', fontSize: 12 }}
+                  onClick={() => moveAction(i, 'down')}
+                  disabled={i === actions.length - 1}
+                  title="Move down"
+                >
+                  ↓
+                </button>
                 <button className="delete-btn" onClick={() => removeAction(i)}>
                   ✕
+                </button>
+              </div>
+              <div style={{ display: 'flex', gap: 6, marginBottom: 4 }}>
+                <input
+                  placeholder="New task title"
+                  value={action.taskID ? '' : action.title}
+                  onChange={(e) => updateAction(i, { title: e.target.value, taskID: null })}
+                  style={{ flex: 1 }}
+                />
+                <button
+                  className="btn btn-secondary"
+                  style={{ padding: '6px 10px', fontSize: 12 }}
+                  onClick={() => createTaskAndLink(i, action.title)}
+                >
+                  Create + Link
                 </button>
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
@@ -534,8 +663,13 @@ function BlockEditorModal({
               </div>
             </div>
           ))}
-          <button className="btn btn-secondary" style={{ width: '100%' }} onClick={addAction}>
-            + Add Action
+          <button
+            className="btn btn-secondary"
+            style={{ width: '100%' }}
+            onClick={addAction}
+            disabled={taskDefinitions.length === 0}
+          >
+            + Add Task
           </button>
         </div>
 

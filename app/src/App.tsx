@@ -2,7 +2,6 @@ import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import { useStore } from './store/useStore';
 import { DayView } from './components/DayView';
-import { AdHocDaySection } from './components/AdHocDaySection';
 import { SettingsView } from './components/SettingsView';
 import { StatsView } from './components/StatsView';
 import { ProjectListView } from './components/ProjectListView';
@@ -12,10 +11,10 @@ import { format } from 'date-fns';
 
 function AppShell() {
   const navigate = useNavigate();
-  const { loadDay, date } = useStore();
+  const { initialize, date } = useStore();
 
   useEffect(() => {
-    loadDay();
+    initialize();
   }, []);
 
   const dateLabel = format(date, 'EEEE, MMM d');
@@ -38,7 +37,6 @@ function AppShell() {
       </header>
       <main className="app-main">
         <DayView />
-        <AdHocDaySection />
       </main>
     </div>
   );

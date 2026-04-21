@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { BlockTemplate, AladhanTimings, IqamahSchedule, ResolvedBlock } from '../types';
 import {
+  blockAnchorOffsetMinutes,
   blockDurationMinutes,
   blockPreAnchorMinutes,
   iqamahConfigForPrayer,
@@ -18,7 +19,7 @@ function anchorTime(
     case 'prayerTime': {
       const base = timingsDateFor(timings, block.anchor.prayer, date);
       if (!base) return null;
-      return new Date(base.getTime() + block.anchor.offsetMinutes * 60_000);
+      return new Date(base.getTime() + blockAnchorOffsetMinutes(block) * 60_000);
     }
     case 'iqamahTime': {
       const config = iqamahConfigForPrayer(iqamah, block.anchor.prayer);
@@ -33,7 +34,7 @@ function anchorTime(
       }
       if (!base) base = timingsDateFor(timings, block.anchor.prayer, date);
       if (!base) return null;
-      return new Date(base.getTime() + block.anchor.offsetMinutes * 60_000);
+      return new Date(base.getTime() + blockAnchorOffsetMinutes(block) * 60_000);
     }
     case 'fixedTime': {
       if (block.anchor.hour === 0 && block.anchor.minute === 0) return null;
@@ -76,7 +77,7 @@ export function resolveBlocks(
       case 'prayerTime': {
         const base: Date =
           timingsDateFor(timings, block.anchor.prayer, date) ?? previousEnd ?? date;
-        const start: Date = new Date(base.getTime() + block.anchor.offsetMinutes * 60_000);
+        const start: Date = new Date(base.getTime() + blockAnchorOffsetMinutes(block) * 60_000);
         const end: Date = new Date(start.getTime() + duration * 60_000);
         resolved.push(makeResolved(block, start, end));
         previousEnd = end;
@@ -96,7 +97,7 @@ export function resolveBlocks(
         if (!iqamahDate) iqamahDate = timingsDateFor(timings, block.anchor.prayer, date);
         if (!iqamahDate) iqamahDate = previousEnd ?? date;
 
-        const adjusted: Date = new Date(iqamahDate.getTime() + block.anchor.offsetMinutes * 60_000);
+        const adjusted: Date = new Date(iqamahDate.getTime() + blockAnchorOffsetMinutes(block) * 60_000);
         const preAnchor = blockPreAnchorMinutes(block);
         const start: Date = new Date(adjusted.getTime() - preAnchor * 60_000);
         const end: Date = new Date(start.getTime() + duration * 60_000);

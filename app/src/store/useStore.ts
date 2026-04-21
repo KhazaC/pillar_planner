@@ -141,7 +141,7 @@ export const useStore = create<AppState>((set, get) => ({
     let blocks = persistence.loadBlockTemplates();
     let routines = persistence.loadRoutineTemplates();
     const projects = persistence.loadProjects();
-    const taskDefs = persistence.loadTaskDefinitions();
+    let taskDefs = persistence.loadTaskDefinitions();
     const adHocTasks = persistence.loadAdHocTasks();
     const iqamah = persistence.loadIqamahSchedule();
     const city = persistence.loadCity();
@@ -156,52 +156,88 @@ export const useStore = create<AppState>((set, get) => ({
       persistence.saveRoutineTemplates(routines);
     }
 
-    // Task migration
-    if (!persistence.isTaskMigrationDone() && taskDefs.length === 0) {
+    // Generate task definitions from existing block actions if needed.
+    if (taskDefs.length === 0) {
       const newDefs: TaskDefinition[] = [];
       const titleMap = new Map<string, string>();
-      const updatedBlocks = blocks.map((b) => ({
-        ...b,
-        actions: b.actions.map((a) => {
-          if (!titleMap.has(a.title)) {
+      const updatedBlocks = blocks.map((b) => {
+        const actions = b.actions.map((a) => {
+          const normalizedTitle = a.title.trim();
+          if (!normalizedTitle) return a;
+
+          if (!titleMap.has(normalizedTitle)) {
             const td = createTaskDefinition({
-              title: a.title,
+              title: normalizedTitle,
               defaultDurationMinutes: a.durationMinutes,
               defaultDifficulty: a.difficulty,
             });
             newDefs.push(td);
-            titleMap.set(a.title, td.id);
+            titleMap.set(normalizedTitle, td.id);
           }
-          return { ...a, taskID: titleMap.get(a.title) ?? null };
-        }),
-      }));
-      persistence.saveTaskDefinitions(newDefs);
-      persistence.saveBlockTemplates(updatedBlocks);
-      persistence.setTaskMigrationDone();
-      set({
-        blockTemplates: updatedBlocks,
-        taskDefinitions: newDefs,
+
+          return { ...a, title: normalizedTitle, taskID: titleMap.get(normalizedTitle) ?? null };
+        });
+        return { ...b, actions };
       });
+
+      if (newDefs.length > 0) {
+        persistence.saveTaskDefinitions(newDefs);
+        persistence.saveBlockTemplates(updatedBlocks);
+        blocks = updatedBlocks;
+        taskDefs = newDefs;
+      }
+      persistence.setTaskMigrationDone();
+    }
+
+    // Backfill missing task links in existing blocks.
+    if (taskDefs.length > 0) {
+      const taskIdByTitle = new Map(taskDefs.map((td) => [td.title.trim().toLowerCase(), td.id]));
+      let changed = false;
+      const updatedBlocks = blocks.map((b) => {
+        const actions = b.actions.map((a) => {
+          if (a.taskID) return a;
+          const taskID = taskIdByTitle.get(a.title.trim().toLowerCase()) ?? null;
+          if (!taskID) return a;
+          changed = true;
+          return { ...a, taskID };
+        });
+        return { ...b, actions };
+      });
+      if (changed) {
+        blocks = updatedBlocks;
+        persistence.saveBlockTemplates(updatedBlocks);
+      }
     }
 
     const month = new Date().getMonth() + 1;
+    const defaultIncludeNap = month >= 4 && month <= 8;
+    const includeNap = persistence.loadIncludeNap(defaultIncludeNap);
+    const selectedRoutineId = persistence.loadSelectedRoutineId();
+    const selectedRoutine =
+      routines.find((r) => r.id === selectedRoutineId) ||
+      (() => {
+        const dow = new Date().getDay(); // 0=Sun
+        const weekday = dow === 0 ? 1 : dow + 1; // 1=Sun..7=Sat
+        return routines.find((r) => r.suggestedWeekdays.includes(weekday)) || routines[0] || null;
+      })();
 
     set({
       blockTemplates: blocks,
       routineTemplates: routines,
       projects,
-      taskDefinitions: taskDefs.length > 0 ? taskDefs : get().taskDefinitions,
+      taskDefinitions: taskDefs,
       adHocTasks,
       iqamahSchedule: iqamah,
       city,
       notificationMode: notifMode,
-      includeNap: month >= 4 && month <= 8,
+      includeNap,
+      selectedRoutine,
     });
 
-    // Auto-select routine
-    const suggested = get().suggestedRoutine();
-    if (suggested) {
-      set({ selectedRoutine: suggested });
+    if (selectedRoutine) {
+      persistence.saveSelectedRoutineId(selectedRoutine.id);
+    } else {
+      persistence.clearSelectedRoutineId();
     }
   },
 
@@ -262,6 +298,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   selectRoutine: (routine) => {
     set({ selectedRoutine: routine });
+    persistence.saveSelectedRoutineId(routine.id);
   },
 
   toggleAction: (blockIndex, actionIndex) => {
@@ -324,8 +361,15 @@ export const useStore = create<AppState>((set, get) => ({
   },
   deleteRoutine: (id) => {
     const updated = get().routineTemplates.filter((r) => r.id !== id);
-    set({ routineTemplates: updated });
+    const currentSelected = get().selectedRoutine;
+    const nextSelected = currentSelected?.id === id ? updated[0] || null : currentSelected;
+    set({ routineTemplates: updated, selectedRoutine: nextSelected });
     persistence.saveRoutineTemplates(updated);
+    if (nextSelected) {
+      persistence.saveSelectedRoutineId(nextSelected.id);
+    } else {
+      persistence.clearSelectedRoutineId();
+    }
   },
 
   // Project CRUD
@@ -500,7 +544,10 @@ export const useStore = create<AppState>((set, get) => ({
     set({ notificationMode: mode });
     persistence.saveNotificationMode(mode);
   },
-  setIncludeNap: (v) => set({ includeNap: v }),
+  setIncludeNap: (v) => {
+    set({ includeNap: v });
+    persistence.saveIncludeNap(v);
+  },
 
   // Import/Export
   importBundle: (json, mode) => {
