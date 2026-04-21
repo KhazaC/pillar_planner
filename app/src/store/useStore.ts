@@ -74,6 +74,11 @@ interface AppState {
     details?: { durationMinutes?: number | null; difficulty?: TaskDifficulty }
   ) => void;
   removeActionFromResolvedBlock: (blockIndex: number, actionIndex: number) => void;
+  moveActionBetweenResolvedBlocks: (
+    fromBlockIndex: number,
+    actionIndex: number,
+    toBlockIndex: number
+  ) => void;
   completeActionWithDetails: (
     blockIndex: number,
     actionIndex: number,
@@ -289,10 +294,12 @@ export const useStore = create<AppState>((set, get) => ({
       if (dayLog) {
         const blockMap = new Map(dayLog.blockLogs.map((bl) => [bl.orderIndex, bl]));
         const actionMap = new Map<string, { isCompleted: boolean; durationMinutes: number; difficulty: TaskDifficulty }>();
+        const loggedActionIDs = new Set<string>();
         const noteMap = new Map<number, string>();
         dayLog.blockLogs.forEach((bl) => {
           if (bl.note) noteMap.set(bl.orderIndex, bl.note);
           bl.actionLogs.forEach((al) => {
+            loggedActionIDs.add(al.id);
             actionMap.set(al.id, {
               isCompleted: al.isCompleted,
               durationMinutes: al.actualDurationMinutes || al.durationMinutes,
@@ -326,7 +333,9 @@ export const useStore = create<AppState>((set, get) => ({
               });
 
             const mergedIds = new Set(mergedFromLog.map((a) => a.id));
-            const missingCurrent = rb.actions.filter((a) => !mergedIds.has(a.id));
+            const missingCurrent = rb.actions.filter(
+              (a) => !mergedIds.has(a.id) && !loggedActionIDs.has(a.id)
+            );
             rb.actions = [...mergedFromLog, ...missingCurrent];
           }
 
@@ -426,6 +435,28 @@ export const useStore = create<AppState>((set, get) => ({
     const block = { ...blocks[blockIndex] };
     block.actions = block.actions.filter((_, i) => i !== actionIndex);
     blocks[blockIndex] = block;
+    set({ resolvedBlocks: blocks });
+
+    const dateKey = format(startOfDay(get().date), 'yyyy-MM-dd');
+    const dayLogs = persistence.loadDayLogs();
+    saveDayLog(get(), blocks, dateKey, dayLogs);
+  },
+
+  moveActionBetweenResolvedBlocks: (fromBlockIndex, actionIndex, toBlockIndex) => {
+    if (fromBlockIndex === toBlockIndex) return;
+
+    const blocks = [...get().resolvedBlocks];
+    const fromBlock = { ...blocks[fromBlockIndex] };
+    const toBlock = { ...blocks[toBlockIndex] };
+    const fromActions = [...fromBlock.actions];
+    const [moved] = fromActions.splice(actionIndex, 1);
+    if (!moved) return;
+
+    const toActions = [...toBlock.actions, moved];
+    fromBlock.actions = fromActions;
+    toBlock.actions = toActions;
+    blocks[fromBlockIndex] = fromBlock;
+    blocks[toBlockIndex] = toBlock;
     set({ resolvedBlocks: blocks });
 
     const dateKey = format(startOfDay(get().date), 'yyyy-MM-dd');

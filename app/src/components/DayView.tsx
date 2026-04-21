@@ -18,6 +18,7 @@ export function DayView() {
     toggleAction,
     addActionToResolvedBlock,
     removeActionFromResolvedBlock,
+    moveActionBetweenResolvedBlocks,
     completeActionWithDetails,
     updateNote,
   } = useStore();
@@ -29,6 +30,12 @@ export function DayView() {
     title: string;
     durationMinutes: number | '';
     difficulty: TaskDifficulty;
+  } | null>(null);
+  const [pendingMove, setPendingMove] = useState<{
+    fromBlockIndex: number;
+    actionIndex: number;
+    title: string;
+    targetBlockIndex: number;
   } | null>(null);
 
   useEffect(() => {
@@ -125,6 +132,14 @@ export function DayView() {
                 onToggleAction={(ai) => handleToggleAction(i, ai)}
                 onAddTask={(title, details) => addActionToResolvedBlock(i, title, details)}
                 onRemoveTask={(ai) => removeActionFromResolvedBlock(i, ai)}
+                onMoveTask={(ai) =>
+                  setPendingMove({
+                    fromBlockIndex: i,
+                    actionIndex: ai,
+                    title: block.actions[ai]?.title || 'Task',
+                    targetBlockIndex: i,
+                  })
+                }
                 taskSuggestions={taskDefinitions.map((td) => td.title)}
                 taskDefinitions={taskDefinitions}
                 onUpdateNote={(note) => updateNote(i, note)}
@@ -162,6 +177,64 @@ export function DayView() {
             setPendingCompletion(null);
           }}
         />
+      )}
+
+      {pendingMove && (
+        <div className="modal-overlay" onClick={() => setPendingMove(null)}>
+          <div className="modal-sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Move Task</h2>
+              <button className="modal-close" onClick={() => setPendingMove(null)}>
+                Cancel
+              </button>
+            </div>
+
+            <div className="form-group">
+              <label>Task</label>
+              <input value={pendingMove.title} disabled />
+            </div>
+
+            <div className="form-group">
+              <label>Move To Block</label>
+              <select
+                value={pendingMove.targetBlockIndex}
+                onChange={(e) =>
+                  setPendingMove((prev) =>
+                    prev
+                      ? { ...prev, targetBlockIndex: Number(e.target.value) }
+                      : prev
+                  )
+                }
+              >
+                {resolvedBlocks.map((b, i) => (
+                  <option key={`${b.id}-${i}`} value={i}>
+                    {b.template.name} ({format(b.startTime, 'h:mm a')})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="btn-row">
+              <button className="btn btn-secondary" onClick={() => setPendingMove(null)}>
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  if (!pendingMove) return;
+                  moveActionBetweenResolvedBlocks(
+                    pendingMove.fromBlockIndex,
+                    pendingMove.actionIndex,
+                    pendingMove.targetBlockIndex
+                  );
+                  setPendingMove(null);
+                }}
+              >
+                Move
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );
@@ -247,6 +320,7 @@ interface BlockRowProps {
     details: { durationMinutes?: number | null; difficulty?: TaskDifficulty }
   ) => void;
   onRemoveTask: (actionIndex: number) => void;
+  onMoveTask: (actionIndex: number) => void;
   taskSuggestions: string[];
   taskDefinitions: TaskDefinition[];
   onUpdateNote: (note: string) => void;
@@ -258,6 +332,7 @@ function BlockRow({
   onToggleAction,
   onAddTask,
   onRemoveTask,
+  onMoveTask,
   taskSuggestions,
   taskDefinitions,
   onUpdateNote,
@@ -417,6 +492,7 @@ function BlockRow({
                   action={action}
                   onToggle={() => onToggleAction(ai)}
                   onRemove={canAddTasks ? () => onRemoveTask(ai) : undefined}
+                  onMove={() => onMoveTask(ai)}
                 />
               ))
             )}
@@ -485,10 +561,12 @@ function ActionRow({
   action,
   onToggle,
   onRemove,
+  onMove,
 }: {
   action: ResolvedBlock['actions'][0];
   onToggle: () => void;
   onRemove?: () => void;
+  onMove?: () => void;
 }) {
   const pts = effortScore(action.durationMinutes, action.difficulty);
 
@@ -514,6 +592,11 @@ function ActionRow({
       {onRemove && (
         <button className="delete-btn" onClick={onRemove} title="Remove task">
           ✕
+        </button>
+      )}
+      {onMove && (
+        <button className="edit-btn" onClick={onMove} title="Move task" style={{ marginLeft: 6 }}>
+          Move
         </button>
       )}
     </div>
