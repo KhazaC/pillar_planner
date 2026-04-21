@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
+import { HashRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import { useStore } from './store/useStore';
 import { DayView } from './components/DayView';
 import { SettingsView } from './components/SettingsView';
@@ -44,7 +44,7 @@ function AppShell() {
 
 export default function App() {
   return (
-    <BrowserRouter basename={import.meta.env.BASE_URL}>
+    <HashRouter>
       <Routes>
         <Route path="/" element={<AppShell />} />
         <Route path="/settings" element={<SettingsView />} />
@@ -53,6 +53,6 @@ export default function App() {
         <Route path="/radar" element={<ProjectRadarView />} />
         <Route path="/tasks" element={<TaskRegistryView />} />
       </Routes>
-    </BrowserRouter>
+    </HashRouter>
   );
 }
